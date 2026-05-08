@@ -1,184 +1,290 @@
 import streamlit as st
-from database import add_trade, get_trades
+import os
 from datetime import datetime
 
-st.set_page_config(page_title="Trading Journal Pro", layout="wide")
-
-st.title("📊 Trading Journal Pro v17 (AI Review System)")
-
-# Load trades
-trades = get_trades()
-
-# =======================
-# AI TRADE ANALYZER
-# =======================
-def analyze_trades(trades):
-
-    insights = []
-
-    if len(trades) < 5:
-        return ["Not enough data yet. Add more trades for analysis."]
-
-    pnl_list = [t[0] for t in trades]
-    setup_list = [t[1] for t in trades]
-    score_list = [t[3] for t in trades]
-
-    avg_score = sum(score_list) / len(score_list)
-
-    # 🧠 Quality insight
-    if avg_score < 5:
-        insights.append("⚠️ Low average trade quality. Focus on better setups, not more trades.")
-    else:
-        insights.append("✅ Good discipline level detected in your trading.")
-
-    # 📊 High quality trades
-    high_quality = [t for t in trades if t[3] >= 7]
-    high_pnl = sum([t[0] for t in high_quality])
-
-    insights.append(f"📊 Profit from high-quality trades: ${round(high_pnl, 2)}")
-
-    # 📈 Setup performance
-    breakout_pnl = sum([t[0] for t in trades if t[1] == "Breakout"])
-    reversal_pnl = sum([t[0] for t in trades if t[1] == "Reversal"])
-    trend_pnl = sum([t[0] for t in trades if t[1] == "Trend Following"])
-    scalp_pnl = sum([t[0] for t in trades if t[1] == "Scalp"])
-
-    best_setup = max(
-        [("Breakout", breakout_pnl),
-         ("Reversal", reversal_pnl),
-         ("Trend", trend_pnl),
-         ("Scalp", scalp_pnl)],
-        key=lambda x: x[1]
-    )
-
-    insights.append(f"📈 Best performing setup: {best_setup[0]} (${round(best_setup[1], 2)})")
-
-    # ⚠️ risk warning
-    if max(pnl_list) > 100 and min(pnl_list) < -100:
-        insights.append("⚠️ High volatility detected — reduce risk per trade.")
-
-    return insights
-
-
-# =======================
-# SIDEBAR NAVIGATION
-# =======================
-menu = st.sidebar.selectbox(
-    "Navigation",
-    ["Add Trade", "Analytics", "Equity Curve", "AI Review"]
+from database import (
+    init_db,
+    add_trade,
+    get_trades,
+    reset_all_trades
 )
 
 # =======================
-# ADD TRADE PAGE
+# INIT
 # =======================
-if menu == "Add Trade":
+init_db()
 
-    st.header("➕ Add New Trade")
+st.set_page_config(page_title="Trading Journal", layout="wide")
 
-    pnl = st.number_input("PnL ($)", step=1.0)
+# =======================
+# LOGO
+# =======================
+logo_path = "logo.png"
+
+if os.path.isfile(logo_path):
+    st.image(logo_path, width=120)
+
+# =======================
+# HEADER
+# =======================
+st.title("Precision Market Academy")
+st.caption("📊 Trading Journal")
+
+trades = get_trades()
+
+# =======================
+# SIDEBAR
+# =======================
+st.sidebar.title("Filters")
+
+menu = st.sidebar.radio(
+    "Module",
+    ["Dashboard", "Add Trade", "Analytics", "Equity Curve", "AI Review"]
+)
+
+filter_type = st.sidebar.selectbox(
+    "Filter",
+    ["All", "Wins", "Losses"]
+)
+
+# =======================
+# RESET
+# =======================
+st.sidebar.markdown("### Reset Data")
+
+confirm = st.sidebar.checkbox("Confirm delete all trades")
+
+if st.sidebar.button("Reset Trades"):
+    if confirm:
+        reset_all_trades()
+        st.rerun()
+    else:
+        st.error("Confirm first")
+
+# =======================
+# FILTER LOGIC
+# =======================
+def apply_filters(trades):
+
+    out = []
+
+    for t in trades:
+        pnl = float(t[0])
+
+        if filter_type == "Wins" and pnl <= 0:
+            continue
+        if filter_type == "Losses" and pnl > 0:
+            continue
+
+        out.append(t)
+
+    return out
+
+filtered_trades = apply_filters(trades)
+
+# =======================
+# DASHBOARD (TRADINGVIEW STYLE)
+# =======================
+if menu == "Dashboard":
+
+    st.header("📊 Trade Dashboard")
+
+    if filtered_trades:
+
+        pnl_list = [float(t[0]) for t in filtered_trades]
+
+        wins = len([p for p in pnl_list if p > 0])
+        losses = len([p for p in pnl_list if p <= 0])
+
+        total = len(pnl_list)
+        win_rate = (wins / total) * 100 if total else 0
+        total_pnl = sum(pnl_list)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Trades", total)
+        col2.metric("Win Rate", f"{win_rate:.1f}%")
+        col3.metric("Wins/Losses", f"{wins}/{losses}")
+        col4.metric("PnL", f"${total_pnl:.2f}")
+
+        st.divider()
+
+        st.subheader("📈 Trade Journal")
+
+        for i, t in enumerate(filtered_trades, 1):
+
+            pnl, setup, note, tv_link, day, timestamp = t
+            pnl = float(pnl)
+
+            status = "🟢 WIN" if pnl > 0 else "🔴 LOSS"
+
+            with st.expander(f"{status} Trade #{i} | ${pnl}"):
+
+                st.markdown(f"""
+**Setup:** {setup}  
+**Day:** {day}  
+**Time:** {timestamp}  
+
+📝 **Note:**  
+{note}
+""")
+
+                if tv_link:
+                    st.markdown(f"🔗 [Open TradingView Chart]({tv_link})")
+
+    else:
+        st.info("No trades found.")
+
+# =======================
+# ADD TRADE
+# =======================
+elif menu == "Add Trade":
+
+    st.header("➕ Add Trade")
+
+    pnl = st.number_input("PnL", step=1.0)
 
     setup = st.selectbox(
-        "Setup Type",
-        ["Breakout", "Reversal", "Trend Following", "Scalp"]
+        "Setup",
+        ["Breakout", "Reversal", "Trend", "Scalp"]
     )
 
-    note = st.text_area("Trade Notes")
-
-    score = st.slider(
-        "Trade Quality Score (1 = bad, 10 = excellent)",
-        1, 10, 5
+    day = st.selectbox(
+        "Day",
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     )
+
+    note = st.text_area("Notes")
+
+    tv_link = st.text_input("TradingView Link")
 
     if st.button("Save Trade"):
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        add_trade(pnl, setup, note, score, timestamp)
+        add_trade(pnl, setup, note, tv_link, day, timestamp)
 
         st.success("Trade saved!")
 
-        trades = get_trades()
+        st.rerun()
 
 # =======================
-# ANALYTICS PAGE
+# ANALYTICS
 # =======================
 elif menu == "Analytics":
 
-    st.header("📊 Performance Analytics")
+    st.header("📊 Analytics")
 
-    if len(trades) > 0:
+    if filtered_trades:
 
-        pnl_list = [t[0] for t in trades]
-        score_list = [t[3] for t in trades]
+        pnl_list = [float(t[0]) for t in filtered_trades]
+
+        wins = [p for p in pnl_list if p > 0]
+        losses = [p for p in pnl_list if p <= 0]
 
         total = len(pnl_list)
-        wins = len([p for p in pnl_list if p > 0])
-        win_rate = (wins / total) * 100
-        total_pnl = sum(pnl_list)
-        avg_score = sum(score_list) / len(score_list)
+        win_rate = (len(wins) / total) * 100 if total else 0
+
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses)) if losses else 0
+
+        profit_factor = gross_profit / gross_loss if gross_loss != 0 else float("inf")
+
+        expectancy = sum(pnl_list) / total if total else 0
 
         col1, col2, col3 = st.columns(3)
-
-        col1.metric("Total Trades", total)
-        col2.metric("Win Rate %", round(win_rate, 2))
-        col3.metric("Total PnL", round(total_pnl, 2))
-
-        st.divider()
-
-        st.subheader("🧠 Trade Quality")
-        st.metric("Average Score", round(avg_score, 2))
-
-        good = len([t for t in trades if t[3] >= 7])
-        bad = len([t for t in trades if t[3] < 7])
-
-        st.write("✅ Good Trades:", good)
-        st.write("⚠️ Bad Trades:", bad)
+        col1.metric("Win Rate", f"{win_rate:.2f}%")
+        col2.metric("Profit Factor", round(profit_factor, 2))
+        col3.metric("Expectancy", round(expectancy, 2))
 
     else:
-        st.info("No trades yet.")
+        st.info("No trades found.")
 
 # =======================
-# EQUITY CURVE PAGE
+# EQUITY CURVE
 # =======================
 elif menu == "Equity Curve":
 
-    st.header("📈 Equity Curve + Risk")
+    st.header("📈 Equity Curve")
 
-    if len(trades) > 0:
+    if filtered_trades:
 
-        equity = []
         balance = 0
+        equity = []
         peak = 0
-        max_drawdown = 0
+        max_dd = 0
 
-        for t in trades:
-            pnl = t[0]
-
+        for t in filtered_trades:
+            pnl = float(t[0])
             balance += pnl
             equity.append(balance)
 
-            if balance > peak:
-                peak = balance
-
-            drawdown = peak - balance
-
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
+            peak = max(peak, balance)
+            max_dd = max(max_dd, peak - balance)
 
         st.line_chart(equity)
-        st.metric("Max Drawdown ($)", round(max_drawdown, 2))
+        st.metric("Max Drawdown", f"${max_dd:.2f}")
 
     else:
-        st.info("No data yet.")
+        st.info("No data")
 
 # =======================
-# AI REVIEW PAGE
+# AI REVIEW (FIXED + REAL INSIGHT)
 # =======================
 elif menu == "AI Review":
 
-    st.header("🤖 AI Trade Review")
+    st.header("🤖 AI Insights")
 
-    insights = analyze_trades(trades)
+    if len(filtered_trades) == 0:
+        st.warning("No trades available.")
 
-    for i in insights:
-        st.write(i)
+    else:
+
+        pnl_list = [float(t[0]) for t in filtered_trades]
+
+        wins = [p for p in pnl_list if p > 0]
+        losses = [p for p in pnl_list if p <= 0]
+
+        total = len(pnl_list)
+
+        win_rate = (len(wins) / total) * 100 if total else 0
+        avg_pnl = sum(pnl_list) / total if total else 0
+
+        best_trade = max(filtered_trades, key=lambda x: float(x[0]))
+        worst_trade = min(filtered_trades, key=lambda x: float(x[0]))
+
+        st.subheader("📊 Performance Summary")
+
+        st.write(f"• Win Rate: **{win_rate:.2f}%**")
+        st.write(f"• Average PnL: **${avg_pnl:.2f}**")
+        st.write(f"• Total Trades: **{total}**")
+
+        st.divider()
+
+        st.subheader("🏆 Best Trade")
+
+        st.success(f"""
+PnL: ${best_trade[0]}  
+Setup: {best_trade[1]}  
+Day: {best_trade[4]}  
+Note: {best_trade[2]}
+""")
+
+        st.subheader("❌ Worst Trade")
+
+        st.error(f"""
+PnL: ${worst_trade[0]}  
+Setup: {worst_trade[1]}  
+Day: {worst_trade[4]}  
+Note: {worst_trade[2]}
+""")
+
+        st.divider()
+
+        st.subheader("🧠 Insight")
+
+        if win_rate > 60:
+            st.success("Strong system. Focus on scaling execution.")
+        elif win_rate >= 45:
+            st.warning("Decent system. Improve entry precision.")
+        else:
+            st.error("Weak system. Review strategy and discipline.")
