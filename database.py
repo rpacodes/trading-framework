@@ -3,9 +3,6 @@ import sqlite3
 conn = sqlite3.connect("trades.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# =======================
-# INIT DB (NO RESET)
-# =======================
 def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS trades (
@@ -20,9 +17,6 @@ def init_db():
     """)
     conn.commit()
 
-# =======================
-# ADD TRADE
-# =======================
 def add_trade(pnl, setup, note, tv_link, day, timestamp):
     cursor.execute("""
         INSERT INTO trades (pnl, setup, note, tv_link, day, timestamp)
@@ -30,9 +24,6 @@ def add_trade(pnl, setup, note, tv_link, day, timestamp):
     """, (float(pnl), setup, note, tv_link, day, timestamp))
     conn.commit()
 
-# =======================
-# GET TRADES
-# =======================
 def get_trades():
     cursor.execute("""
         SELECT pnl, setup, note, tv_link, day, timestamp
@@ -41,9 +32,6 @@ def get_trades():
     """)
     return cursor.fetchall()
 
-# =======================
-# RESET
-# =======================
 def reset_all_trades():
     cursor.execute("DELETE FROM trades")
     conn.commit()
